@@ -1,7 +1,8 @@
 #pragma once
 
+#include "features/theme/theme.hpp"
 #include "ui/m3_widgets.hpp"
-#include "decode/exif.hpp"
+#include "decode/common/exif.hpp"
 
 #include <cairo.h>
 #include <cstdint>
@@ -9,23 +10,56 @@
 #include <string>
 #include <vector>
 
-namespace hpv {
+// Material Symbols Rounded codepoints (Private Use Area)
+inline constexpr int kIconCodepoints[] = {
+    0xE2C7, // folder_open      → Open
+    0xE5CB, // chevron_left     → <
+    0xE5CC, // chevron_right    → >
+    0xE145, // add              → +
+    0xE15B, // remove           → -
+    0xEA16, // fit_screen       → Fit
+    0xE5D0, // fullscreen       → Full
+    0xE037, // play_arrow       → Play
+    0xE8B8, // settings         → Gear
+    0xE88E, // info             → Info
+    0xE945, // crop             → Crop
+    0xE5D3, // more_vert        → Menu
+    0xE746, // draw             → Draw
+    0xE419, // rotate_right     → RotR (mirrored from same glyph as RotL)
+    0xE419, // rotate_left      → RotL
+    0xE5C8, // flip             → Flip
+};
+inline constexpr const char* kIconLabels[] = {
+    "Open", "<", ">", "+", "-", "Fit", "Full", "Play", "Gear", "Info", "Crop", "Menu", "Draw",
+    "RotR", "RotL", "Flip",
+};
+inline constexpr int8_t kToolbarLayout[] = {
+    0,      // folder (Open)
+    -1,     // spacer
+    1,      // chevron_left
+    2,      // chevron_right
+    -1,     // spacer
+    3,      // add
+    4,      // remove
+    5,      // fit_screen
+    -1,     // spacer
+    6,      // fullscreen
+    7,      // play_arrow
+    -1,     // spacer
+    10,     // crop
+    12,     // draw (markup)
+    -1,     // spacer
+    13,     // rotate_cw
+    14,     // rotate_ccw
+    15,     // flip
+};
+inline constexpr int kNumToolbarItems = sizeof(kToolbarLayout) / sizeof(kToolbarLayout[0]);
+inline constexpr int kSettingsIconIdx = 8;
+inline constexpr int kMetadataIconIdx = 9;
+inline constexpr int kMenuIconIdx = 11;
+inline constexpr int kIconSize = 96;
 
-// M3 dynamic color tokens — call apply_theme() before rendering to switch
-namespace m3 {
-extern double surface_r, surface_g, surface_b;
-extern double surface_container_r, surface_container_g, surface_container_b;
-extern double surface_container_high_r, surface_container_high_g, surface_container_high_b;
-extern double on_surface_r, on_surface_g, on_surface_b;
-extern double on_surface_variant_r, on_surface_variant_g, on_surface_variant_b;
-extern double primary_r, primary_g, primary_b;
-extern double primary_container_r, primary_container_g, primary_container_b;
-extern double on_primary_container_r, on_primary_container_g, on_primary_container_b;
-extern double outline_r, outline_g, outline_b;
-extern double outline_variant_r, outline_variant_g, outline_variant_b;
-extern double tonal_container_r, tonal_container_g, tonal_container_b;
-void apply_theme(bool light);
-}
+namespace hpv {
 
 struct OverlayState {
     bool show_info = false;
@@ -36,6 +70,7 @@ struct OverlayState {
     bool show_sidebar = false;
     bool show_menu = false;
     bool crop_active = false;
+    bool markup_active = false;
     float bg_alpha = 1.0f;
 
     std::string filename;
@@ -79,11 +114,14 @@ public:
                         const OverlayState& state, std::vector<OverlayButton>& buttons);
     void render_crop_overlay(cairo_t* cr, int win_w, int win_h,
                              const OverlayState& state, std::vector<OverlayButton>& buttons);
+    void render_markup_overlay(cairo_t* cr, int win_w, int win_h,
+                               const OverlayState& state);
     void render_menu_popup(cairo_t* cr, int win_w, int win_h,
                            const OverlayState& state, std::vector<OverlayButton>& buttons);
     void draw_rounded_rect(cairo_t* cr, double x, double y, double w, double h, double r);
 
-    bool init_icons(const char* font_path, const char* crop_svg_path);
+    bool init_icons(const char* font_path, const char* crop_svg_path,
+                    const char* flip_svg_path);
     void destroy_icons();
     bool crop_icon_loaded() const {
         return kNumIcons > 10 && icon_surfaces_.size() > 10 && icon_surfaces_[10] != nullptr;
@@ -91,7 +129,7 @@ public:
 
     static constexpr int kToolbarHeight = 48;
     static constexpr int kToolbarHoverZone = 64;
-    static constexpr int kNumIcons = 12;
+    static constexpr int kNumIcons = 16;
 
 private:
     void render_placeholder(cairo_t* cr, int win_w, int win_h);
