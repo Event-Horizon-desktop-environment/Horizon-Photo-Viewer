@@ -113,8 +113,10 @@ public:
     // Color management callbacks (public for listener struct initialization)
     static void cm_output_img_desc_ready(void* data, wp_image_description_v1* desc,
                                            uint32_t identity);
+    static void cm_output_img_desc_ready2(void* data, wp_image_description_v1* desc,
+                                            uint32_t identity_hi, uint32_t identity_lo);
     static void cm_output_img_desc_failed(void* data, wp_image_description_v1* desc,
-                                            uint32_t cause, const char* msg);
+                                             uint32_t cause, const char* msg);
     static void cm_output_info_icc(void* data, wp_image_description_info_v1* info,
                                     int32_t icc_fd, uint32_t icc_size);
     static void cm_output_info_done(void* data, wp_image_description_info_v1* info);
