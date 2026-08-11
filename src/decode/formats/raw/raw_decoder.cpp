@@ -8,22 +8,36 @@ namespace hpv {
 
 bool RawDecoder::can_decode(const uint8_t* data, size_t size) {
     if (size < 4) return false;
-    static const uint8_t magic[][6] = {
-        {0x49, 0x49, 0x2A, 0x00},           // TIFF / CR2
-        {0x4D, 0x4D, 0x00, 0x2A},           // TIFF (Motorola)
-        {0x49, 0x49, 0x2A, 0x00, 0x10, 0x00}, // CR2
-        {0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x10}, // CR2 (Motorola)
-        {0x49, 0x49, 0x52, 0x08},           // DNG
-        {0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08}, // ARW
-        {'M', 'D', 'X', 0x00, 0x01},         // NEF
-        {'R', 'E', 'C', 0x00, 0x00, 0x00},   // ORF
-        {0x08, 0x00, 0x00, 0x00},           // RW2
-        {'I', 'I', 'R', 'S', 0x08, 0x00, 0x00, 0x00}, // RW2 variant
-        {'P', '6', ' ', ' ', 0x30, 0x31},    // PEF
+    struct Magic {
+        const uint8_t* bytes;
+        size_t len;
+    };
+    static const uint8_t tiff_le[] = {0x49, 0x49, 0x2A, 0x00};
+    static const uint8_t tiff_be[] = {0x4D, 0x4D, 0x00, 0x2A};
+    static const uint8_t cr2_le[] = {0x49, 0x49, 0x2A, 0x00, 0x10, 0x00};
+    static const uint8_t cr2_be[] = {0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x10};
+    static const uint8_t dng[] = {0x49, 0x49, 0x52, 0x08};
+    static const uint8_t arw[] = {0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08};
+    static const uint8_t nef[] = {'M', 'D', 'X', 0x00, 0x01};
+    static const uint8_t orf[] = {'R', 'E', 'C', 0x00, 0x00, 0x00};
+    static const uint8_t rw2[] = {0x08, 0x00, 0x00, 0x00};
+    static const uint8_t rw2_v[] = {'I', 'I', 'R', 'S', 0x08, 0x00, 0x00, 0x00};
+    static const uint8_t pef[] = {'P', '6', ' ', ' ', 0x30, 0x31};
+    static const Magic magic[] = {
+        {tiff_le, sizeof(tiff_le)},   // TIFF / CR2
+        {tiff_be, sizeof(tiff_be)},   // TIFF (Motorola)
+        {cr2_le, sizeof(cr2_le)},     // CR2
+        {cr2_be, sizeof(cr2_be)},     // CR2 (Motorola)
+        {dng, sizeof(dng)},           // DNG
+        {arw, sizeof(arw)},           // ARW
+        {nef, sizeof(nef)},           // NEF
+        {orf, sizeof(orf)},           // ORF
+        {rw2, sizeof(rw2)},           // RW2
+        {rw2_v, sizeof(rw2_v)},       // RW2 variant
+        {pef, sizeof(pef)},           // PEF
     };
     for (auto& m : magic) {
-        size_t len = sizeof(m);
-        if (size >= len && std::memcmp(data, m, len) == 0)
+        if (size >= m.len && std::memcmp(data, m.bytes, m.len) == 0)
             return true;
     }
     return false;

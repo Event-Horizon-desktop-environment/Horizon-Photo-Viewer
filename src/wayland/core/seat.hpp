@@ -114,6 +114,8 @@ private:
                                              uint32_t axis, int32_t value120);
     static void handle_pointer_axis_relative_direction(void* data, wl_pointer* pointer,
                                                        uint32_t axis, uint32_t direction);
+    static void handle_pointer_warp(void* data, wl_pointer* pointer,
+                                    wl_fixed_t surface_x, wl_fixed_t surface_y);
 
     static constexpr wl_pointer_listener pointer_listener_ = {
         .enter = handle_pointer_enter,
@@ -127,6 +129,7 @@ private:
         .axis_discrete = handle_pointer_axis_discrete,
         .axis_value120 = handle_pointer_axis_value120,
         .axis_relative_direction = handle_pointer_axis_relative_direction,
+        .warp = handle_pointer_warp,
     };
 
     wl_seat* seat_ = nullptr;

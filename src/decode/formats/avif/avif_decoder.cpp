@@ -52,21 +52,24 @@ DecodeResult AvifDecoder::decode(const uint8_t* data, size_t size,
     result.width = decoder->image->width;
     result.height = decoder->image->height;
 
-    avifRWData icc_raw = AVIF_DATA_EMPTY;
-    avifResult icc_r = avifDecoderGetICC(decoder, &icc_raw);
-    if (icc_r == AVIF_RESULT_OK && icc_raw.data && icc_raw.size > 0) {
-        result.icc_profile.assign(icc_raw.data, icc_raw.data + icc_raw.size);
+    if (decoder->image->icc.size > 0 && decoder->image->icc.data) {
+        result.icc_profile.assign(decoder->image->icc.data,
+                                  decoder->image->icc.data + decoder->image->icc.size);
     }
-    avifRWDataFree(&icc_raw);
 
     avifRGBImage rgb;
     memset(&rgb, 0, sizeof(rgb));
     avifRGBImageSetDefaults(&rgb, decoder->image);
     rgb.format = AVIF_RGB_FORMAT_RGBA;
     rgb.depth = 8;
-    avifRGBImageAllocatePixels(&rgb);
+    avifResult alloc = avifRGBImageAllocatePixels(&rgb);
+    if (alloc != AVIF_RESULT_OK) {
+        std::cerr << "avif: pixel buffer allocation failed: " << avifResultToString(alloc) << "\n";
+        avifDecoderDestroy(decoder);
+        return result;
+    }
 
-    avifResult convert = avifImageRGBToPixels(decoder->image, &rgb);
+    avifResult convert = avifImageYUVToRGB(decoder->image, &rgb);
     if (convert != AVIF_RESULT_OK) {
         std::cerr << "avif: RGB convert failed: " << avifResultToString(convert) << "\n";
         avifRGBImageFreePixels(&rgb);

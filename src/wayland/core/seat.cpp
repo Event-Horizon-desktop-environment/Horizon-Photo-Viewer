@@ -220,4 +220,15 @@ void Seat::handle_pointer_axis_value120(void* /*data*/, wl_pointer* /*pointer*/,
 void Seat::handle_pointer_axis_relative_direction(void* /*data*/, wl_pointer* /*pointer*/,
                                                    uint32_t /*axis*/, uint32_t /*direction*/) {}
 
+void Seat::handle_pointer_warp(void* data, wl_pointer* /*pointer*/, wl_fixed_t sx, wl_fixed_t sy) {
+    auto* self = static_cast<Seat*>(data);
+    int nx = wl_fixed_to_int(sx);
+    int ny = wl_fixed_to_int(sy);
+    if (self->motion_cb_ && (nx != self->pointer_state_.x || ny != self->pointer_state_.y)) {
+        self->motion_cb_(nx, ny);
+    }
+    self->pointer_state_.x = nx;
+    self->pointer_state_.y = ny;
+}
+
 }

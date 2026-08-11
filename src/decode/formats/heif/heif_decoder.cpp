@@ -51,8 +51,10 @@ DecodeResult HeifDecoder::decode(const uint8_t* data, size_t size,
     result.height = heif_image_handle_get_height(handle);
 
     heif_color_profile_nclx* nclx = nullptr;
-    if (heif_image_handle_get_nclx_color_profile(handle, &nclx) == 0 && nclx) {
-        heif_color_profile_nclx_free(nclx);
+    heif_error nclx_err = heif_image_handle_get_nclx_color_profile(handle, &nclx);
+    (void)nclx_err;
+    if (nclx) {
+        heif_nclx_color_profile_free(nclx);
     }
 
     size_t icc_size = heif_image_handle_get_raw_color_profile_size(handle);

@@ -927,6 +927,7 @@ bool capture_selection_interactive(
     .axis_discrete = [](void*, wl_pointer*, uint32_t, int32_t) {},
     .axis_value120 = [](void*, wl_pointer*, uint32_t, int32_t) {},
     .axis_relative_direction = [](void*, wl_pointer*, uint32_t, uint32_t) {},
+    .warp = [](void*, wl_pointer*, wl_fixed_t, wl_fixed_t) {},
   };
   wl_pointer_add_listener(state.pointer, &kSelPointerListener, &state);
 

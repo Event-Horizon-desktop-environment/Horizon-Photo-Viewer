@@ -80,4 +80,10 @@ void WaylandSeat::ptr_axis(void* data, wl_pointer*, uint32_t, uint32_t axis, wl_
   self.ptrAxisVertCb_(-deltaPx);
 }
 
+void WaylandSeat::ptr_warp(void* data, wl_pointer*, wl_fixed_t sx, wl_fixed_t sy) {
+  SC_LOG("WaylandSeat::ptr_warp sx=%f sy=%f", wl_fixed_to_double(sx), wl_fixed_to_double(sy));
+  auto& self = *static_cast<WaylandSeat*>(data);
+  if (self.ptrMotionCb_) self.ptrMotionCb_(self.ptrFocusSurface_, wl_fixed_to_double(sx), wl_fixed_to_double(sy));
+}
+
 }
