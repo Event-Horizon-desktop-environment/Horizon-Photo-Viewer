@@ -333,6 +333,26 @@ static bool unpack_pixel(const uint8_t* src, uint32_t fmt, unsigned char* rgba) 
     a = static_cast<unsigned char>(((p >> 30 ) & 0x003u) * 255 / 3);
     break;
   }
+  case WL_SHM_FORMAT_XBGR16161616:
+  case WL_SHM_FORMAT_ABGR16161616: {
+    uint16_t comp[4]; std::memcpy(comp, src, 8);
+    r = static_cast<unsigned char>(comp[0] >> 8);
+    g = static_cast<unsigned char>(comp[1] >> 8);
+    b = static_cast<unsigned char>(comp[2] >> 8);
+    if (fmt == WL_SHM_FORMAT_ABGR16161616)
+      a = static_cast<unsigned char>(comp[3] >> 8);
+    break;
+  }
+  case WL_SHM_FORMAT_XRGB16161616:
+  case WL_SHM_FORMAT_ARGB16161616: {
+    uint16_t comp[4]; std::memcpy(comp, src, 8);
+    b = static_cast<unsigned char>(comp[0] >> 8);
+    g = static_cast<unsigned char>(comp[1] >> 8);
+    r = static_cast<unsigned char>(comp[2] >> 8);
+    if (fmt == WL_SHM_FORMAT_ARGB16161616)
+      a = static_cast<unsigned char>(comp[3] >> 8);
+    break;
+  }
   default:
     return false;
   }
@@ -469,12 +489,13 @@ static bool write_png_rgba(const uint8_t* src, int w, int h, int src_stride, uin
                            const char* path) {
   
   std::vector<unsigned char> rgba(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+  const int bpp = fmt_is_16bit_int(fmt) ? 8 : 4;
   for (int y = 0; y < h; ++y) {
     const int sy = yinvert ? (h - 1 - y) : y;
     const auto* row = reinterpret_cast<const uint8_t*>(src + static_cast<size_t>(sy) * static_cast<size_t>(src_stride));
     unsigned char* dst = rgba.data() + static_cast<size_t>(y) * static_cast<size_t>(w) * 4;
     for (int x = 0; x < w; ++x) {
-      if (!unpack_pixel(row + x * 4, fmt, dst + x * 4)) return false;
+      if (!unpack_pixel(row + x * bpp, fmt, dst + x * 4)) return false;
     }
   }
   return stbi_write_png(path, w, h, 4, rgba.data(), w * 4) != 0;
@@ -697,10 +718,9 @@ static void frame_ready(void* data, zwlr_screencopy_frame_v1* fr, uint32_t  , ui
         int w = static_cast<int>(c->width);
         int h = static_cast<int>(c->height);
         int stride = static_cast<int>(c->stride);
-        int hd_bpp = fmt_is_16bit_int(c->fmt) ? 8 : 4;
         const auto* map = static_cast<const uint8_t*>(c->map);
-        std::vector<float> rgb(static_cast<size_t>(w) * h * 3);
         if (fmt_is_half_float(c->fmt)) {
+          std::vector<float> rgb(static_cast<size_t>(w) * h * 3);
           c->phase2_success = true;
           for (int y = 0; y < h && c->phase2_success; ++y) {
             int sy = c->y_invert ? (h - 1 - y) : y;
@@ -709,22 +729,16 @@ static void frame_ready(void* data, zwlr_screencopy_frame_v1* fr, uint32_t  , ui
               c->phase2_success = false;
             }
           }
-        } else {
-          for (int y = 0; y < h; ++y) {
-            int sy = c->y_invert ? (h - 1 - y) : y;
-            const auto* row = map + static_cast<size_t>(sy) * stride;
-            float* dst = rgb.data() + static_cast<size_t>(y) * w * 3;
-            for (int x = 0; x < w; ++x) {
-              read_high_depth_pixel(row + x * hd_bpp, c->fmt, dst[x * 3 + 0], dst[x * 3 + 1], dst[x * 3 + 2]);
-            }
-          }
-        }
-        if (c->phase2_success) {
+          if (c->phase2_success) {
 #ifdef EH_HAVE_LIBPNG
-          c->phase2_success = write_png16_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
+            c->phase2_success = write_png16_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
 #else
-          c->phase2_success = write_png_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
+            c->phase2_success = write_png_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
 #endif
+          }
+        } else {
+          c->phase2_success =
+              write_png_rgba(map, w, h, stride, c->fmt, c->y_invert, c->path_utf8.c_str());
         }
       } else {
         c->phase2_success =
@@ -1206,21 +1220,34 @@ bool batch_capture_outputs(
           }
         }
       } else if (fmt_is_high_depth(ctx.fmt)) {
-        out.hdr_linear_rgb.resize(static_cast<size_t>(out.native_w) * out.native_h * 3);
-        out.rgba_pixels.resize(static_cast<size_t>(out.native_w) * out.native_h * 4);
-        for (int y = 0; y < out.native_h; ++y) {
-          int sy = ctx.y_invert ? (out.native_h - 1 - y) : y;
-          const auto* row = static_cast<const uint8_t*>(ctx.map) + static_cast<size_t>(sy) * ctx.stride;
-          float* hdr = out.hdr_linear_rgb.data() + static_cast<size_t>(y) * out.native_w * 3;
-          unsigned char* dst = out.rgba_pixels.data() + static_cast<size_t>(y) * out.native_w * 4;
-          for (int x = 0; x < out.native_w; ++x) {
-            read_high_depth_pixel(row + x * hd_bpp, ctx.fmt, hdr[x * 3 + 0], hdr[x * 3 + 1], hdr[x * 3 + 2]);
-            float r = hdr[x * 3 + 0], g = hdr[x * 3 + 1], b = hdr[x * 3 + 2];
-            aces_tone_map(r, g, b);
-            dst[x * 4 + 0] = static_cast<unsigned char>(linear_to_sdr(r) * 255.0f + 0.5f);
-            dst[x * 4 + 1] = static_cast<unsigned char>(linear_to_sdr(g) * 255.0f + 0.5f);
-            dst[x * 4 + 2] = static_cast<unsigned char>(linear_to_sdr(b) * 255.0f + 0.5f);
-            dst[x * 4 + 3] = 255;
+        if (out.is_hdr) {
+          out.hdr_linear_rgb.resize(static_cast<size_t>(out.native_w) * out.native_h * 3);
+          out.rgba_pixels.resize(static_cast<size_t>(out.native_w) * out.native_h * 4);
+          for (int y = 0; y < out.native_h; ++y) {
+            int sy = ctx.y_invert ? (out.native_h - 1 - y) : y;
+            const auto* row = static_cast<const uint8_t*>(ctx.map) + static_cast<size_t>(sy) * ctx.stride;
+            float* hdr = out.hdr_linear_rgb.data() + static_cast<size_t>(y) * out.native_w * 3;
+            unsigned char* dst = out.rgba_pixels.data() + static_cast<size_t>(y) * out.native_w * 4;
+            for (int x = 0; x < out.native_w; ++x) {
+              read_high_depth_pixel(row + x * hd_bpp, ctx.fmt, hdr[x * 3 + 0], hdr[x * 3 + 1], hdr[x * 3 + 2]);
+              float r = hdr[x * 3 + 0], g = hdr[x * 3 + 1], b = hdr[x * 3 + 2];
+              aces_tone_map(r, g, b);
+              dst[x * 4 + 0] = static_cast<unsigned char>(linear_to_sdr(r) * 255.0f + 0.5f);
+              dst[x * 4 + 1] = static_cast<unsigned char>(linear_to_sdr(g) * 255.0f + 0.5f);
+              dst[x * 4 + 2] = static_cast<unsigned char>(linear_to_sdr(b) * 255.0f + 0.5f);
+              dst[x * 4 + 3] = 255;
+            }
+          }
+        } else {
+          SC_LOG("wlr batch: high-depth SDR fmt=0x%x", ctx.fmt);
+          out.rgba_pixels.resize(static_cast<size_t>(out.native_w) * out.native_h * 4);
+          for (int y = 0; y < out.native_h; ++y) {
+            int sy = ctx.y_invert ? (out.native_h - 1 - y) : y;
+            const auto* row = static_cast<const uint8_t*>(ctx.map) + static_cast<size_t>(sy) * ctx.stride;
+            unsigned char* dst = out.rgba_pixels.data() + static_cast<size_t>(y) * out.native_w * 4;
+            for (int x = 0; x < out.native_w; ++x) {
+              unpack_pixel(row + x * hd_bpp, ctx.fmt, dst + x * 4);
+            }
           }
         }
       } else {
@@ -1406,30 +1433,35 @@ static void ext_frame_ready(void* data, ext_image_copy_capture_frame_v1* fr) {
       c->frame_ok = write_png_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
     }
   } else if (fmt_is_high_depth(c->fmt)) {
-    std::vector<float> rgb(static_cast<size_t>(w) * h * 3);
-    std::vector<unsigned char> rgba(static_cast<size_t>(w) * h * 4);
-    int hd_bpp = fmt_is_16bit_int(c->fmt) ? 8 : 4;
-    c->frame_ok = true;
-    for (int y = 0; y < h && c->frame_ok; ++y) {
-      const auto* row = map + static_cast<size_t>(y) * stride;
-      float* df = rgb.data() + static_cast<size_t>(y) * w * 3;
-      unsigned char* dr = rgba.data() + static_cast<size_t>(y) * w * 4;
-      for (int x = 0; x < w; ++x) {
-        read_high_depth_pixel(row + x * hd_bpp, c->fmt, df[x * 3 + 0], df[x * 3 + 1], df[x * 3 + 2]);
-        float r = df[x * 3 + 0], g = df[x * 3 + 1], b = df[x * 3 + 2];
-        aces_tone_map(r, g, b);
-        dr[x * 4 + 0] = static_cast<unsigned char>(linear_to_sdr(r) * 255.0f + 0.5f);
-        dr[x * 4 + 1] = static_cast<unsigned char>(linear_to_sdr(g) * 255.0f + 0.5f);
-        dr[x * 4 + 2] = static_cast<unsigned char>(linear_to_sdr(b) * 255.0f + 0.5f);
-        dr[x * 4 + 3] = 255;
+    if (c->is_hdr || fmt_is_half_float(c->fmt)) {
+      std::vector<float> rgb(static_cast<size_t>(w) * h * 3);
+      std::vector<unsigned char> rgba(static_cast<size_t>(w) * h * 4);
+      int hd_bpp = fmt_is_16bit_int(c->fmt) ? 8 : 4;
+      c->frame_ok = true;
+      for (int y = 0; y < h && c->frame_ok; ++y) {
+        const auto* row = map + static_cast<size_t>(y) * stride;
+        float* df = rgb.data() + static_cast<size_t>(y) * w * 3;
+        unsigned char* dr = rgba.data() + static_cast<size_t>(y) * w * 4;
+        for (int x = 0; x < w; ++x) {
+          read_high_depth_pixel(row + x * hd_bpp, c->fmt, df[x * 3 + 0], df[x * 3 + 1], df[x * 3 + 2]);
+          float r = df[x * 3 + 0], g = df[x * 3 + 1], b = df[x * 3 + 2];
+          aces_tone_map(r, g, b);
+          dr[x * 4 + 0] = static_cast<unsigned char>(linear_to_sdr(r) * 255.0f + 0.5f);
+          dr[x * 4 + 1] = static_cast<unsigned char>(linear_to_sdr(g) * 255.0f + 0.5f);
+          dr[x * 4 + 2] = static_cast<unsigned char>(linear_to_sdr(b) * 255.0f + 0.5f);
+          dr[x * 4 + 3] = 255;
+        }
       }
-    }
-    if (c->frame_ok) {
+      if (c->frame_ok) {
 #ifdef EH_HAVE_LIBPNG
-      c->frame_ok = write_png16_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
+        c->frame_ok = write_png16_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
 #else
-      c->frame_ok = write_png_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
+        c->frame_ok = write_png_from_linear(rgb.data(), w, h, c->path_utf8.c_str());
 #endif
+      }
+    } else {
+      SC_LOG("ext single: high-depth SDR fmt=0x%x", c->fmt);
+      c->frame_ok = write_png_rgba(map, w, h, stride, c->fmt, false, c->path_utf8.c_str());
     }
   } else {
     c->frame_ok = write_png_rgba(map, w, h, stride, c->fmt, false, c->path_utf8.c_str());
@@ -1935,22 +1967,35 @@ bool batch_capture_outputs_ext(
         }
       }
     } else if (fmt_is_high_depth(ctx.fmt)) {
-      SC_LOG("ext batch: high-depth fmt=0x%x", ctx.fmt);
-      int hd_bpp = fmt_is_16bit_int(ctx.fmt) ? 8 : 4;
-      out.hdr_linear_rgb.resize(static_cast<size_t>(out.native_w) * out.native_h * 3);
-      out.rgba_pixels.resize(static_cast<size_t>(out.native_w) * out.native_h * 4);
-      for (int y = 0; y < out.native_h; ++y) {
-        const auto* row = static_cast<const uint8_t*>(ctx.map) + static_cast<size_t>(y) * ctx.stride;
-        float* hdr = out.hdr_linear_rgb.data() + static_cast<size_t>(y) * out.native_w * 3;
-        unsigned char* dst = out.rgba_pixels.data() + static_cast<size_t>(y) * out.native_w * 4;
-        for (int x = 0; x < out.native_w; ++x) {
-          read_high_depth_pixel(row + x * hd_bpp, ctx.fmt, hdr[x * 3 + 0], hdr[x * 3 + 1], hdr[x * 3 + 2]);
-          float r = hdr[x * 3 + 0], g = hdr[x * 3 + 1], b = hdr[x * 3 + 2];
-          aces_tone_map(r, g, b);
-          dst[x * 4 + 0] = static_cast<unsigned char>(linear_to_sdr(r) * 255.0f + 0.5f);
-          dst[x * 4 + 1] = static_cast<unsigned char>(linear_to_sdr(g) * 255.0f + 0.5f);
-          dst[x * 4 + 2] = static_cast<unsigned char>(linear_to_sdr(b) * 255.0f + 0.5f);
-          dst[x * 4 + 3] = 255;
+      if (out.is_hdr) {
+        SC_LOG("ext batch: high-depth HDR fmt=0x%x", ctx.fmt);
+        int hd_bpp = fmt_is_16bit_int(ctx.fmt) ? 8 : 4;
+        out.hdr_linear_rgb.resize(static_cast<size_t>(out.native_w) * out.native_h * 3);
+        out.rgba_pixels.resize(static_cast<size_t>(out.native_w) * out.native_h * 4);
+        for (int y = 0; y < out.native_h; ++y) {
+          const auto* row = static_cast<const uint8_t*>(ctx.map) + static_cast<size_t>(y) * ctx.stride;
+          float* hdr = out.hdr_linear_rgb.data() + static_cast<size_t>(y) * out.native_w * 3;
+          unsigned char* dst = out.rgba_pixels.data() + static_cast<size_t>(y) * out.native_w * 4;
+          for (int x = 0; x < out.native_w; ++x) {
+            read_high_depth_pixel(row + x * hd_bpp, ctx.fmt, hdr[x * 3 + 0], hdr[x * 3 + 1], hdr[x * 3 + 2]);
+            float r = hdr[x * 3 + 0], g = hdr[x * 3 + 1], b = hdr[x * 3 + 2];
+            aces_tone_map(r, g, b);
+            dst[x * 4 + 0] = static_cast<unsigned char>(linear_to_sdr(r) * 255.0f + 0.5f);
+            dst[x * 4 + 1] = static_cast<unsigned char>(linear_to_sdr(g) * 255.0f + 0.5f);
+            dst[x * 4 + 2] = static_cast<unsigned char>(linear_to_sdr(b) * 255.0f + 0.5f);
+            dst[x * 4 + 3] = 255;
+          }
+        }
+      } else {
+        SC_LOG("ext batch: high-depth SDR fmt=0x%x", ctx.fmt);
+        int hd_bpp = fmt_is_16bit_int(ctx.fmt) ? 8 : 4;
+        out.rgba_pixels.resize(static_cast<size_t>(out.native_w) * out.native_h * 4);
+        for (int y = 0; y < out.native_h; ++y) {
+          const auto* row = static_cast<const uint8_t*>(ctx.map) + static_cast<size_t>(y) * ctx.stride;
+          unsigned char* dst = out.rgba_pixels.data() + static_cast<size_t>(y) * out.native_w * 4;
+          for (int x = 0; x < out.native_w; ++x) {
+            unpack_pixel(row + x * hd_bpp, ctx.fmt, dst + x * 4);
+          }
         }
       }
     } else {
