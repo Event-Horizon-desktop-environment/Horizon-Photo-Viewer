@@ -39,7 +39,6 @@ bool is_heif(const uint8_t* data, size_t size) {
 }
 #endif
 
-#ifndef HAVE_LIBAVIF
 bool is_avif(const uint8_t* data, size_t size) {
     if (size < 12) return false;
     for (size_t i = 0; i + 12 <= size; i++) {
@@ -50,7 +49,6 @@ bool is_avif(const uint8_t* data, size_t size) {
     }
     return false;
 }
-#endif
 
 #ifndef HAVE_LIBJXL
 bool is_jxl(const uint8_t* data, size_t size) {
